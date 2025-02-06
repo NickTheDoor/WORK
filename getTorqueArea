@@ -1,0 +1,744 @@
+function getTorqueAreas
+% GETTORQUEAREAS calculates the values of the torque within a burst.
+% 
+% getMHvalues returns a text file (XXXTorqueAreaout.xls) with the PEAK and area for 100% of the
+% stimulation train and for 50% of the stimulation train (the back half of
+% the curve). Impulse in the first 200 ms and Rate of Force Development
+% (RFD) are also calculated. The output have all these results normalized
+% (by MVC), raw (without biodex amplification) and converted (with biodex
+% amplification).
+% Two more output files will be created: XXXplotdata.xls (output data from
+% the torque traces) and XXXplot.fig (MATLAB figure with the torque trace).
+%
+% Instructions: 1) Load file.
+%               2) Input 100% area and peak and 50% area and peak (check instructions bellow)
+%               3) Choose area of interest
+%               4) Save output.
+%
+% MVC Torque can be calculated using the script MeasureTorqieAreasMVC to get MVC torque in Nm and V.
+% These software will also give you the Torque values for only half of the
+% MVC (50%), in Nm and V; and areas in Vs and Nm.s (for 100% and 50% of the curve). 
+%
+% NOV 2013 Neurophysiology Lab, U of A
+
+if exist ('getTAdata.mat') == 2 % Does eadata.mat (package of default variables) exist?
+	load getTAdata  
+% 	if exist('defaultuserCurrentChan') ~= 1;defaultuserCurrentChan = 1;end
+
+else
+	defaultpathname = [];
+	defaultuserprestim = 40;
+	defaultuserpoststim = 70;
+
+	defaultuserStimChan = 0;
+	defaultuserTorqueChannel = 1;
+	defaultTorqueGain = 5;
+	defaultBiodexScale = 64;
+	
+	defaultelecmecdelayms = 50;
+	defaultuserimpulseregionms = 200;
+	defaultpreburstssec = .25;
+	defaultpostburstssec = .5;
+	
+	defaultnormTorqueV = 100;
+	defaultnormTorqueNm = 100;
+	defaultnormAreaVs = 100;
+	defaultnormAreaNms = 100;
+	defaultnormhalfAreaNms = 100;
+	defaultnormhalfAreaVs = 100;
+	save getTAdata
+
+end
+
+maxpulserate = 200;
+% DesiredSampRate = 100;
+
+filtlimit = 240;
+outsample = 50; %[Hz]
+baselineperiod = 0.5; %[s]
+usermeasurespan = .01; %seconds
+
+
+fprintf('Open a file.\n')
+[filename,pathname] = uigetfile([defaultpathname,'*.bin'],'Select file for M-H analysis');
+if filename == 0; 					% Cancel button pushed
+	return
+end
+fileroot = filename(1: length(filename)-4);
+
+% ===================================  Input Parameters ======================================
+dlgTitle ='Get Torque Areas parameters';
+prompt = {'Stimulator Channel',...
+        'Torque Channel',...
+        'Torque Gain',...
+		'Biodex resolution setting [plus/minus]',...
+		'Region of Impulse [ms]',...
+		'Electromechanical delay [ms]',...
+		'Time to plot before burst',...
+		'Time to plot after burst',...
+		'100% Torque [Nm]',...
+		'100% Area [Nms]',...
+		'100% half Area [Nms]'};
+    
+def = {num2str(defaultuserStimChan),...
+		num2str(defaultuserTorqueChannel),...
+		num2str(defaultTorqueGain),...
+		num2str(defaultBiodexScale),...
+		num2str(defaultuserimpulseregionms),...
+		num2str(defaultelecmecdelayms),...
+		num2str(defaultpreburstssec),...
+        num2str(defaultpostburstssec),...
+		num2str(defaultnormTorqueNm),...
+		num2str(defaultnormAreaNms),...
+		num2str(defaultnormhalfAreaNms)};
+
+inList = inputdlg(prompt,dlgTitle,1,def);
+if isempty(inList); 					% Cancel button pushed
+	return
+end
+
+userStimChannel =  str2num(inList{1});
+if userStimChannel ~= defaultuserStimChan;
+	defaultuserStimChan = userStimChannel;
+	save getTAdata defaultuserStimChan -APPEND   
+end
+
+userTorqueChannel =  str2num(inList{2});
+if userTorqueChannel ~= defaultuserTorqueChannel;
+	defaultuserTorqueChannel = userTorqueChannel;
+	save getTAdata defaultuserTorqueChannel -APPEND   
+end
+
+Torquegain =  str2num(inList{3});
+if Torquegain ~= defaultTorqueGain;
+	defaultTorqueGain = Torquegain;
+	save getTAdata defaultTorqueGain -APPEND   
+end
+
+BiodexScale =  str2num(inList{4});
+if BiodexScale ~= defaultBiodexScale;
+	defaultBiodexScale = BiodexScale;
+	save getTAdata defaultBiodexScale -APPEND   
+end
+
+userimpulseregionms = str2num(inList{5});
+if userimpulseregionms ~= defaultuserimpulseregionms;
+	defaultuserimpulseregionms = userimpulseregionms;
+	save getTAdata defaultuserimpulseregionms -APPEND   
+end
+
+elecmecdelayms = str2num(inList{6});
+if elecmecdelayms ~= defaultelecmecdelayms;
+	defaultelecmecdelayms = elecmecdelayms;
+	save getTAdata defaultelecmecdelayms -APPEND   
+end
+
+preburstssec = str2num(inList{7});
+if preburstssec ~= defaultpreburstssec;
+	defaultpreburstssec = preburstssec;
+	save getTAdata defaultpreburstssec -APPEND   
+end
+
+postburstssec = str2num(inList{8});
+if postburstssec ~= defaultpostburstssec;
+	defaultpostburstssec = postburstssec;
+	save getTAdata defaultpostburstssec -APPEND   
+end
+
+normTorqueNm =  str2num(inList{9});
+if normTorqueNm ~= defaultnormTorqueNm;
+	defaultnormTorqueNm = normTorqueNm;
+	save getTAdata defaultnormTorqueNm -APPEND   
+end
+
+normAreaNms =  str2num(inList{10});
+if normAreaNms ~= defaultnormAreaNms;
+	defaultnormAreaNms = normAreaNms;
+	save getTAdata defaultnormAreaNms -APPEND   
+end
+
+normhalfAreaNms =  str2num(inList{11});
+if normhalfAreaNms ~= defaultnormhalfAreaNms;
+	defaultnormhalfAreaNms = normhalfAreaNms;
+	save getTAdata defaultnormhalfAreaNms -APPEND   
+end
+defaultpathname = pathname;
+
+save getTAdata defaultpathname -APPEND
+fprintf('Opened file: %s\n\n',[pathname,filename])
+fileroot = filename(1: length(filename)-4);
+
+% =================================== Load Stimulation Channel ======================================
+% StimChannel = input('Which channel is the Stimulator signal?   ');
+[data,channelnumbers,samprate,filename] = binloadseparatechannels(pathname,filename,userStimChannel);
+numchans = length(channelnumbers);
+
+fprintf('Graphing...\n')	
+gMHfig = figure; orient tall
+%set(1,'Position',[176 174 672 504])		%<------ Set this for new screens
+time = (1 : 1 : length(data))/samprate;
+plot(time,data)
+
+xlabel([ 'Channel ', num2str(channelnumbers)])			% channels are labelled from 0
+title(['Stimulator Channel:     Filename   =   ',filename])
+
+% ==================================================== Region of Interest ======================================
+fprintf('Pick boundaries for analysis. (No dragging)\n')
+figure(gMHfig);
+pause
+[pickedx,pickedy] = ginput(2);
+
+close(gMHfig)
+
+[arbvar,timestart] = min(abs(pickedx(1) - time));		% ARBitrary VARiable
+[arbvar,timeend] = min(abs(pickedx(2) - time));
+
+clip = data(timestart:timeend,1);
+
+% ============================================ Find stimulation ======================================
+limitup = max(clip);
+limitdown = min(clip);
+
+midclip = (limitup + limitdown)/2;
+cliptops = find(clip > midclip);
+
+interpulse = diff(cliptops);
+
+pulsedelay  =  0.5 * samprate / maxpulserate;
+
+stmpts  = find(interpulse >pulsedelay);
+spikevector = cliptops(stmpts + 1);
+spikevector = [cliptops(1) ; spikevector];
+spikevector = spikevector + timestart - 1;
+if size(spikevector,2) == 1
+	spikevector = spikevector';
+end
+numsweeps = length(spikevector);
+
+% ----------------------------------- Detect Bursts ---------------------------------------
+
+burstendindices = separatebursttrains(spikevector,samprate/2);
+burstends = spikevector(burstendindices);
+numbursts = size(burstends,1);
+
+clear clip;
+
+burstlengths = (spikevector(burstendindices(:,2))-spikevector(burstendindices(:,1)));
+burstlengthsms = burstlengths / samprate*1000;
+avgburstlengthsms = mean(burstlengthsms);
+
+trainfreq = mean(1./diff(spikevector)* samprate); %Assumes constant frequency; max frequency reported.
+% =========================================================== Load Torque Channel ===============================
+[data,channelnumbers,samprate,filename] = binloadseparatechannels(pathname,filename,userTorqueChannel);
+Nmdata = data / Torquegain * (BiodexScale / 5) * 1.3558;
+
+%-------- baseline
+baselinetime = round(baselineperiod * samprate);
+baselineNm = mean(Nmdata(1:baselinetime));
+Nmdata = Nmdata - baselineNm;
+baselineV = mean(data(1:baselinetime));
+data = data - baselineV;
+
+%-------- flip upright
+Nmdata = Nmdata * sign(mean(Nmdata));
+data = data * sign(mean(data));
+
+% =========================================================== Set up the data =====================================================
+prebursts = round(preburstssec * samprate);
+postbursts = round(postburstssec * samprate);
+
+meansweeplength = round(mean(burstends(:,2)- burstends(:,1)));
+
+for burstindex = 1 : numbursts
+	burststart = burstends(burstindex,1) - prebursts;
+	burststop = burstends(burstindex,1) + meansweeplength + postbursts;
+% 	Nmburstpile(:,burstindex) = Nmdatapile(:,index) - Nmbaselines(index);
+% 	datapile(:,index) = datapile(:,index) - baselines(index);
+Nmburstpile(:,burstindex) = Nmdata(burststart:burststop);
+burstpile(:,burstindex) = data(burststart:burststop);
+
+end
+
+bursttimems = (((0:meansweeplength+prebursts+postbursts) - prebursts) / samprate * 1000)';
+
+% =========================================================== Plot =====================================================
+htplot = figure;
+set(htplot,'color','w','name',[pathname,filename])
+plot(bursttimems,Nmburstpile)
+ylabel('Torque [Nm]')
+xlabel('Time [ms]')
+title(['Torque plot: ',num2str(numbursts),' sweeps - unfiltered'])
+% -------------- filter plot ------------
+filtNmburstpile = simplefiltfilter(Nmburstpile,samprate,4,'low',filtlimit);
+filtburstpile = simplefiltfilter(burstpile,samprate,4,'low',filtlimit);
+
+zerostart = 1;
+zerostop = round(0.5 * prebursts);
+filtNmbaselines = mean(filtNmburstpile(zerostart:zerostop,:));
+filtbaselines = mean(filtburstpile(zerostart:zerostop,:));
+
+for index = 1 : numbursts
+	filtNmburstpile(:,index) = filtNmburstpile(:,index) - filtNmbaselines(index);
+	filtburstpile(:,index) = filtburstpile(:,index) - filtbaselines(index);
+end
+
+hftplot = figure;
+set(hftplot,'color','w','name',[pathname,filename])
+plot(bursttimems,filtNmburstpile)
+ylabel('Torque [Nm]')
+xlabel('Time [ms]')
+
+% ============================================================= measure epochs =======================================================
+	
+	figure(hftplot);
+	v= axis;
+% 	title('Choose the start')
+% 	pause
+% 	[pickedx,pickedy] = ginput(1);
+% 	[arbvar,burstfirststart] = min(abs(pickedx(1) - bursttimems));		% ARBitrary VARiable
+	[arbvar,burstfirststart] = min(abs(elecmecdelayms - bursttimems));		% ARBitrary VARiable
+	hline1 = line( bursttimems(burstfirststart)*[1 1],[v(3) v(4)],'color',[0 0 0],'linestyle',':');
+
+	if isempty(userimpulseregionms)
+		figure(hftplot);
+		title('Choose the start of the plateau')
+		[pickedx,pickedy] = ginput(1);
+		[arbvar,burstfirstpeak] = min(abs(pickedx(1) - bursttimems));		% ARBitrary VARiable
+	else
+		[arbvar,burstfirstpeak] = min(abs(bursttimems(burstfirststart) + userimpulseregionms - bursttimems));		% ARBitrary VARiable
+	end
+	hline2 = line( bursttimems(burstfirstpeak)*[1 1],[v(3) v(4)],'color',[0 0 0],'linestyle',':');
+% 	impulseregionms = (burstfirstpeak/samprate*1000);
+	
+	figure(hftplot);
+% 	title('Choose the end of the force trace.')
+% 	[pickedx,pickedy] = ginput(1);
+% 	[arbvar,burstlastend] = min(abs(pickedx(1) - bursttimems));		% ARBitrary VARiable
+% for burstindex = 1: numbursts
+% 	[arbvar,burstlastend] = min(abs((burstlengthsms(burstindex)+elecmecdelayms) - bursttimems));		% ARBitrary VARiable
+% end
+	[arbvar,burstlastend] = min(abs((avgburstlengthsms+elecmecdelayms) - bursttimems));		% ARBitrary VARiable
+
+	hline3 = line( bursttimems(burstlastend)*[1 1],[v(3) v(4)],'color',[0 0 0],'linestyle',':');
+	title(['Torque plot: ',num2str(numbursts),' sweeps - filtered'])
+
+% 	delete(hline1,hline2)
+
+%------------------- Save plot
+	saveas(hftplot,[pathname fileroot 'plot.fig'],'fig');
+	fprintf('Saved figure file: %s\n\n',[pathname fileroot 'plot.fig'])
+
+%-- data output
+% 	normburstpile = burstpile / defaultnormTorqueNm * 100;
+	output = resample([bursttimems,filtNmburstpile],outsample,samprate);
+%	Fix plot endpoints?	
+	
+	plotdatafilename = [pathname fileroot 'plotdata.xls'];
+	tab = sprintf('\t');
+	nextline = sprintf('\n');
+
+	fid = fopen(plotdatafilename ,'wb');
+% 
+	for itemindex = 1 : size(output,1)
+		for columnindex = 1 : size(output,2)
+			entry = output(itemindex,columnindex);
+			fprintf(fid,'%3.4f',entry);
+			if columnindex == size(output,2)
+				fwrite(fid,nextline, 'uchar');
+			else
+				fwrite(fid,tab, 'uchar');
+			end
+		end
+	end
+	fclose(fid);
+% 	xlswrite([pathout,plotdatafilename],output)
+	
+	fprintf('Saved plot data file: %s\n\n',plotdatafilename)
+
+% =================================================== Calculations ============================================
+measurespan = round(usermeasurespan * samprate);
+
+for burstindex = 1 : numbursts
+
+%------ remove baseline again:	
+	runstart = burstfirststart;
+	measurestart = round(runstart - measurespan);
+	measurestop = round(runstart + measurespan);
+	Nmnewbaseline = mean(filtNmburstpile(measurestart:measurestop,burstindex));
+	newbaseline = mean(filtburstpile(measurestart:measurestop,burstindex));
+	filtNmburstpile(:,burstindex) = filtNmburstpile(:,burstindex) - Nmnewbaseline;
+	filtburstpile(:,burstindex) = filtburstpile(:,burstindex) - newbaseline;
+%------ 	
+	
+	fullareatime = bursttimems(burstfirststart : burstlastend);
+	Nmfullarea(burstindex) = trapz(fullareatime,filtNmburstpile(burstfirststart : burstlastend,burstindex)) / 1000; % [Nm s]
+	fullarea(burstindex) = trapz(fullareatime,filtburstpile(burstfirststart : burstlastend,burstindex)) / 1000; % [V s]
+
+	riseareatime = bursttimems(burstfirststart : burstfirstpeak);
+	Nmrisearea(burstindex) = trapz(riseareatime,filtNmburstpile(burstfirststart: burstfirstpeak,burstindex)) / 1000; % [Nm s]
+	risearea(burstindex) = trapz(riseareatime,filtburstpile(burstfirststart: burstfirstpeak,burstindex)) / 1000; % [V s]
+
+	Nmfullaverage(burstindex) = mean(filtNmburstpile(burstfirststart : burstlastend,burstindex)); % [Nm]
+	fullaverage(burstindex) = mean(filtburstpile(burstfirststart : burstlastend,burstindex)); % [V]
+		
+	midpointburst = round((burstfirststart + burstlastend)/2);
+	fronthalfareatime = bursttimems(burstfirststart : midpointburst-1);
+	Nmfronthalfarea(burstindex) = trapz(fronthalfareatime,filtNmburstpile(burstfirststart: midpointburst-1,burstindex)) / 1000; % [Nm s]
+	fronthalfarea(burstindex) = trapz(fronthalfareatime,filtburstpile(burstfirststart: midpointburst-1,burstindex)) / 1000; % [V s]
+	Nmfronthalfaverage(burstindex) = mean(filtNmburstpile(burstfirststart: midpointburst-1,burstindex)); % [Nm]
+	fronthalfaverage(burstindex) = mean(filtburstpile(burstfirststart: midpointburst-1,burstindex)); % [V]
+    
+    [peak,peakplace] =  max(filtNmburstpile(burstfirststart: midpointburst-1,burstindex));
+    startmeasure =  burstfirststart + peakplace - measurespan;
+ 	stopmeasure =  burstfirststart + peakplace + measurespan;
+	NmfronthalfTorque(burstindex) = mean(filtNmburstpile(startmeasure: stopmeasure,burstindex)); % [Nm]
+	fronthalfTorque(burstindex) = mean(filtburstpile(startmeasure: stopmeasure,burstindex)); % [V]
+	
+	backhalfareatime = bursttimems( midpointburst : burstlastend);
+	Nmbackhalfarea(burstindex) = trapz(backhalfareatime,filtNmburstpile(midpointburst: burstlastend,burstindex)) / 1000; % [Nm s]
+	backhalfarea(burstindex) = trapz(backhalfareatime,filtburstpile(midpointburst: burstlastend,burstindex)) / 1000; % [V s]
+	Nmbackhalfaverage(burstindex) = mean(filtNmburstpile(midpointburst: burstlastend,burstindex)); % [Nm]
+	backhalfaverage(burstindex) = mean(filtburstpile(midpointburst: burstlastend,burstindex)); % [V]
+
+    [peak,peakplace] =  max(filtNmburstpile(midpointburst: burstlastend,burstindex));
+    startmeasure =  midpointburst + peakplace - measurespan;
+	stopmeasure =  midpointburst + peakplace + measurespan;
+    NmbackhalfTorque(burstindex) = mean(filtNmburstpile(startmeasure: stopmeasure,burstindex)); % [Nm]
+	backhalfTorque(burstindex) = mean(filtburstpile(startmeasure: stopmeasure,burstindex)); % [V]
+	
+	
+	runstart = burstfirststart;
+	runstop = burstfirstpeak;
+	measurestart = round(runstart - measurespan);
+	measurestop = round(runstart + measurespan);
+	Nmrisebottom = mean(filtNmburstpile(measurestart:measurestop,burstindex));
+	risebottom = mean(filtburstpile(measurestart:measurestop,burstindex));
+	measurestart = round(runstop - measurespan);
+	measurestop = round(runstop + measurespan);
+	Nmrisetop = mean(filtNmburstpile(measurestart:measurestop,burstindex));
+	risetop = mean(filtburstpile(measurestart:measurestop,burstindex));
+
+	Nmriseslope(burstindex) = (Nmrisetop - Nmrisebottom)/(runstop-runstart) * samprate;
+	riseslope(burstindex) = (risetop - risebottom)/(runstop-runstart) * samprate;
+
+	[peak,peakplace] =  max(filtNmburstpile(:,burstindex));
+	startmeasure =  peakplace - measurespan;
+	stopmeasure =  peakplace + measurespan;
+	NmTorquepeak(burstindex) = mean(filtNmburstpile(startmeasure:stopmeasure,burstindex));
+	NmTorqueaverage(burstindex) = mean(filtNmburstpile(burstfirststart : burstlastend,burstindex));
+	[peak,peakplace] =  max(filtburstpile(:,burstindex));
+	startmeasure =  peakplace - measurespan;
+	stopmeasure =  peakplace + measurespan;
+	Torquepeak(burstindex) = mean(filtburstpile(startmeasure:stopmeasure,burstindex));
+	Torqueaverage(burstindex) = mean(filtburstpile(burstfirststart : burstlastend,burstindex));
+	
+end
+
+normTorquepeak = NmTorquepeak / normTorqueNm * 100;
+normTorqueaverage = NmTorqueaverage / normTorqueNm * 100;
+normfullarea = Nmfullarea / normAreaNms * 100;
+normfullaverage = Nmfullaverage / normTorqueNm * 100;
+
+normfronthalfTorque = NmfronthalfTorque / normTorqueNm * 100;
+normfronthalfaverage = Nmfronthalfaverage / normTorqueNm * 100;
+normfronthalfarea = Nmfronthalfarea / normhalfAreaNms * 100;
+normbackhalfTorque = NmbackhalfTorque / normTorqueNm * 100;
+normbackhalfaverage = Nmbackhalfaverage / normTorqueNm * 100;
+normbackhalfarea = Nmbackhalfarea / normhalfAreaNms * 100;
+
+normrisearea = Nmrisearea / normTorqueNm * 100;
+normriseslope = Nmriseslope / normTorqueNm * 100;
+
+% ============================================================= Plot Graphs ============================================
+% hbarplot = figure;
+% set(hbarplot,'color','w','name',[pathname,filename])
+% 
+% bardataavg = [Epoch1torque Epoch2torque];
+% plotbarcharts(bardataavg)
+% title(['Average torque ( ',num2str(userEpochSpan1(1)),' ~ ',num2str(userEpochSpan1(2)),' )s vs (',num2str(userEpochSpan2(1)),' ~ ',num2str(userEpochSpan2(2)),' )s'])
+% 
+% xlabel('Burst')
+% ylabel('Torque [Nm]')
+
+% ====================================================== Output ==========================================================
+fprintf('Save Torque output file...\n')
+defaultfilename = [fileroot,'TorqueAreaout.xls'];
+[fileout, pathout] = uiputfile([defaultpathname,defaultfilename], 'Excel file Save As');
+if fileout ~= 0
+
+	tab = sprintf('\t');
+	nextline = sprintf('\n');
+
+	fid = fopen([pathout,fileout] ,'wb');
+	
+ 	fwrite(fid,'Stim Freq', 'uchar');
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'%5.2f',trainfreq);
+	fwrite(fid,nextline, 'uchar');
+	fwrite(fid,nextline, 'uchar');
+%----- Norm	
+	fwrite(fid,'Normalized', 'uchar');
+	fwrite(fid,nextline, 'uchar');
+
+	fwrite(fid,'Burst', 'uchar'); fwrite(fid,tab, 'uchar');
+	fprintf(fid,'100%% Peak [ %% Max]');
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'100%% Average [ %% Max]');
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'100%% Area [ %% Max]');
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'front 50%% peak [%% Max]');
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'front 50%% average [%% Max]');
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'front 50%% area [%% Max]');
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'back 50%% peak [%% Max]');
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'back 50%% average [%% Max]');
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'back 50%% area [%% Max]');
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'Impulse (%4d ms)[%%Max / s]',userimpulseregionms);
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'RFD [%%Max / s]');
+	fwrite(fid,nextline, 'uchar');
+	
+	fprintf(fid,'Average');
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'%3.4f',mean(normTorquepeak));
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'%3.4f',mean(normTorqueaverage));
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'%3.4f',mean(normfullarea));
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'%3.4f',mean(normfronthalfTorque));
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'%3.4f',mean(normfronthalfaverage));
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'%3.4f',mean(normfronthalfarea));
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'%3.4f',mean(normbackhalfTorque));
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'%3.4f',mean(normbackhalfaverage));
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'%3.4f',mean(normbackhalfarea));
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'%3.4f',mean(normrisearea));
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'%3.4f',mean(normriseslope));
+	fwrite(fid,nextline, 'uchar');	
+	
+	for burstindex = 1 : numbursts
+		fprintf(fid,'%2d',burstindex);
+		fwrite(fid,tab, 'uchar');
+		fprintf(fid,'%3.4f',normTorquepeak(burstindex));
+		fwrite(fid,tab, 'uchar');
+		fprintf(fid,'%3.4f',normTorqueaverage(burstindex));
+		fwrite(fid,tab, 'uchar');
+		fprintf(fid,'%3.4f',normfullarea(burstindex));
+		fwrite(fid,tab, 'uchar');
+		fprintf(fid,'%3.4f',normfronthalfTorque(burstindex));
+		fwrite(fid,tab, 'uchar');
+		fprintf(fid,'%3.4f',normfronthalfaverage(burstindex));
+		fwrite(fid,tab, 'uchar');
+		fprintf(fid,'%3.4f',normfronthalfarea(burstindex));
+		fwrite(fid,tab, 'uchar');
+		fprintf(fid,'%3.4f',normbackhalfTorque(burstindex));
+		fwrite(fid,tab, 'uchar');
+		fprintf(fid,'%3.4f',normbackhalfaverage(burstindex));
+		fwrite(fid,tab, 'uchar');
+		fprintf(fid,'%3.4f',normbackhalfarea(burstindex));
+		fwrite(fid,tab, 'uchar');
+		fprintf(fid,'%3.4f',normrisearea(burstindex));
+		fwrite(fid,tab, 'uchar');
+		fprintf(fid,'%3.4f',normriseslope(burstindex));
+		fwrite(fid,nextline, 'uchar');
+	end	
+	fwrite(fid,nextline, 'uchar');
+
+%----- Converted	
+	fwrite(fid,'Converted', 'uchar');
+	fwrite(fid,nextline, 'uchar');
+
+	fwrite(fid,'Burst', 'uchar'); fwrite(fid,tab, 'uchar');
+	fprintf(fid,'100%% Peak [Nm]');
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'100%% Average [Nm]');
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'100%% Area [Nm s]');
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'front 50%% peak [Nm]');
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'front 50%% average [Nm]');
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'front 50%% area [Nms]');
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'back 50%% peak [Nm]');
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'back 50%% average [Nm]');
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'back 50%% area [Nms]');
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'Impulse (%4d ms)[Nm s]',userimpulseregionms);
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'RFD [Nm / s]');
+	fwrite(fid,nextline, 'uchar');
+	
+	fprintf(fid,'Average');
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'%3.4f',mean(NmTorquepeak));
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'%3.4f',mean(NmTorqueaverage));
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'%3.4f',mean(Nmfullarea));
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'%3.4f',mean(NmfronthalfTorque));
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'%3.4f',mean(Nmfronthalfaverage));
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'%3.4f',mean(Nmfronthalfarea));
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'%3.4f',mean(NmbackhalfTorque));
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'%3.4f',mean(Nmbackhalfaverage));
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'%3.4f',mean(Nmbackhalfarea));
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'%3.4f',mean(Nmrisearea));
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'%3.4f',mean(Nmriseslope));
+	fwrite(fid,nextline, 'uchar');
+	
+	for burstindex = 1 : numbursts
+		fprintf(fid,'%2d',burstindex);
+		fwrite(fid,tab, 'uchar');
+		fprintf(fid,'%3.4f',NmTorquepeak(burstindex));
+		fwrite(fid,tab, 'uchar');
+		fprintf(fid,'%3.4f',NmTorqueaverage(burstindex));
+		fwrite(fid,tab, 'uchar');
+		fprintf(fid,'%3.4f',Nmfullarea(burstindex));
+		fwrite(fid,tab, 'uchar');
+		fprintf(fid,'%3.4f',NmfronthalfTorque(burstindex));
+		fwrite(fid,tab, 'uchar');
+		fprintf(fid,'%3.4f',Nmfronthalfaverage(burstindex));
+		fwrite(fid,tab, 'uchar');
+		fprintf(fid,'%3.4f',Nmfronthalfarea(burstindex));
+		fwrite(fid,tab, 'uchar');
+		fprintf(fid,'%3.4f',NmbackhalfTorque(burstindex));
+		fwrite(fid,tab, 'uchar');
+		fprintf(fid,'%3.4f',Nmbackhalfaverage(burstindex));
+		fwrite(fid,tab, 'uchar');
+		fprintf(fid,'%3.4f',Nmbackhalfarea(burstindex));
+		fwrite(fid,tab, 'uchar');
+		fprintf(fid,'%3.4f',Nmrisearea(burstindex));
+		fwrite(fid,tab, 'uchar');
+		fprintf(fid,'%3.4f',Nmriseslope(burstindex));
+		fwrite(fid,nextline, 'uchar');
+	end
+	fwrite(fid,nextline, 'uchar');
+
+%----- Raw	
+	fwrite(fid,'Raw', 'uchar');
+	fwrite(fid,nextline, 'uchar');
+
+	fwrite(fid,'Burst', 'uchar'); fwrite(fid,tab, 'uchar');
+	fprintf(fid,'100%% Peak [V]');
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'100%% Average [V]');
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'100%% Area [V s]');
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'front 50%% peak [V]');
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'front 50%% average [V]');
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'front 50%% area [V s]');
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'back 50%% peak [V]');
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'back 50%% average [V]');
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'back 50%% area [V s]');
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'Impulse (%4d ms)[V s]',userimpulseregionms);
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'RFD [V / s]');
+	fwrite(fid,nextline, 'uchar');
+	
+	fprintf(fid,'Average');
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'%3.4f',mean(Torquepeak));
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'%3.4f',mean(Torqueaverage));
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'%3.4f',mean(fullarea));
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'%3.4f',mean(fronthalfTorque));
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'%3.4f',mean(fronthalfaverage));
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'%3.4f',mean(fronthalfarea));
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'%3.4f',mean(backhalfTorque));
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'%3.4f',mean(backhalfaverage));
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'%3.4f',mean(backhalfarea));
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'%3.4f',mean(risearea));
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'%3.4f',mean(riseslope));
+	fwrite(fid,nextline, 'uchar');
+
+	for burstindex = 1 : numbursts
+		fprintf(fid,'%2d',burstindex);
+		fwrite(fid,tab, 'uchar');
+		fprintf(fid,'%3.4f',Torquepeak(burstindex));
+		fwrite(fid,tab, 'uchar');
+		fprintf(fid,'%3.4f',Torqueaverage(burstindex));
+		fwrite(fid,tab, 'uchar');
+		fprintf(fid,'%3.4f',fullarea(burstindex));
+		fwrite(fid,tab, 'uchar');
+		fprintf(fid,'%3.4f',fronthalfTorque(burstindex));
+		fwrite(fid,tab, 'uchar');
+		fprintf(fid,'%3.4f',fronthalfaverage(burstindex));
+		fwrite(fid,tab, 'uchar');
+		fprintf(fid,'%3.4f',fronthalfarea(burstindex));
+		fwrite(fid,tab, 'uchar');
+		fprintf(fid,'%3.4f',backhalfTorque(burstindex));
+		fwrite(fid,tab, 'uchar');
+		fprintf(fid,'%3.4f',backhalfaverage(burstindex));
+		fwrite(fid,tab, 'uchar');
+		fprintf(fid,'%3.4f',backhalfarea(burstindex));
+		fwrite(fid,tab, 'uchar');
+		fprintf(fid,'%3.4f',risearea(burstindex));
+		fwrite(fid,tab, 'uchar');
+		fprintf(fid,'%3.4f',riseslope(burstindex));
+		if burstindex ~= numbursts
+			fwrite(fid,nextline, 'uchar');
+		end
+	end		
+
+	fclose(fid);
+else
+	fprintf('Cancelling Excel output file...\n')
+end	
+
+%------------ force trace
+
+% fprintf('Save Torque trace file...\n')
+% defaultfilename = [fileroot,'TorqueAreatTace.xls'];
+% [fileout, pathout] = uiputfile([defaultpathname,defaultfilename], 'Excel file Save As');
+% if fileout ~= 0
+% 	fprintf('Saving file: %s .\n',[pathout, fileout]);
+% 
+% 	output = resample([bursttimems,burstpile],DesiredSampRate,samprate);
+% 	xlswrite([pathout,fileout],output)
+% 
+% else
+% 	fprintf('Cancelling Excel output file...\n')
+% end	
+	
+	
+fprintf('This was a triumph.\n')
