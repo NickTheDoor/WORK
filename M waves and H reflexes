@@ -1,0 +1,404 @@
+function getMHvaluesdisplay
+% GETMHVALUES calculates the values of the M waves and H reflexes within.
+% getMHvalues returns a text file with the measured current, peak to peak H
+% reflexes and M waves.
+%
+% This version:  outputs M-max, H-max, and H-max/M-max ratio to screen
+% New: Outputs individual traces to second excel file.
+%
+% Instructions: 1) Load file.
+%               2) Choose area of interest
+%               3) Define stimulation artifact
+%               4) Define epoch boundaries
+%               5) Save output.
+%
+% July 2004 Neurophysiology Lab, U of A
+
+if exist ('getMHdata.mat') == 2 % Does eadata.mat (package of default variables) exist?
+	load getMHdata  
+    
+else
+	defaultpathname = [];
+	defaultuserprestim = 40;
+	defaultuserpoststim = 70;
+	defaultuserStimChan = 0;
+	defaultuserCurrentChan = 1;
+	defaultuserEMGChan = 2;
+	defaultcurrentgain = 30;
+	defaultEMGgain = 1;
+
+	save getMHdata
+end
+
+maxpulserate = 200;
+
+fprintf('Open a file.\n')
+[filename,pathname] = uigetfile([defaultpathname,'*.bin'],'Select file for M-H analysis');
+if filename == 0; 					% Cancel button pushed
+	return
+end
+fileroot = filename(1: length(filename)-4);
+
+% ===================================  Input Parameters ======================================
+dlgTitle ='Get M-H values parameters';
+prompt = {'Stimulator Channel',...
+		'Current Channel',...
+		'EMG Channel',...
+		'Current signal gain',...
+		'EMG signal gain',...
+		'Time before stimulus',...
+		'Time after stimulus',...
+        'Number of epochs'};
+
+def = {num2str(defaultuserStimChan),...
+		num2str(defaultuserCurrentChan),...
+		num2str(defaultuserEMGChan),...
+		num2str(defaultcurrentgain),...
+		num2str(defaultEMGgain),...
+		num2str(defaultuserprestim),...
+		num2str(defaultuserpoststim),...
+        '2'};
+
+inList = inputdlg(prompt,dlgTitle,1,def);
+if isempty(inList); 					% Cancel button pushed
+	return
+end
+
+userStimChannel =  str2num(inList{1});
+if userStimChannel ~= defaultuserStimChan;
+	defaultuserStimChan = userStimChannel;
+	save getMHdata defaultuserStimChan -APPEND   
+end
+
+userCurrentChannel =  str2num(inList{2});
+if userCurrentChannel ~= defaultuserCurrentChan;
+	defaultuserCurrentChan = userCurrentChannel;
+	save getMHdata defaultuserCurrentChan -APPEND   
+end
+
+userEMGChannel =  str2num(inList{3});
+if userEMGChannel ~= defaultuserEMGChan;
+	defaultuserEMGChan = userEMGChannel;
+	save getMHdata defaultuserEMGChan -APPEND   
+end
+
+currentgain =  str2num(inList{4});
+if currentgain ~= defaultcurrentgain;
+	defaultcurrentgain = currentgain;
+	save getMHdata defaultcurrentgain -APPEND   
+end
+
+EMGgain =  str2num(inList{5});
+if EMGgain ~= defaultEMGgain;
+	defaultEMGgain = EMGgain;
+	save getMHdata defaultEMGgain -APPEND   
+end
+
+userprestim  = str2num(inList{6});
+if userprestim ~= defaultuserprestim;
+	defaultuserprestim = userprestim;
+	save getMHdata defaultuserprestim -APPEND   
+end
+
+userpoststim  = str2num(inList{7});
+if userpoststim ~= defaultuserpoststim;
+	defaultuserpoststim = userpoststim;
+	save getMHdata defaultuserpoststim -APPEND   
+end
+
+numepochs = str2num(inList{8});
+% =================================== Load Stimulation Channel ======================================
+defaultpathname = pathname;
+save getMHdata defaultpathname -APPEND
+% StimChannel = input('Which channel is the Stimulator signal?   ');
+[data,channelnumbers,samprate,filename] = binloadseparatechannels(pathname,filename,userStimChannel);
+numchans = length(channelnumbers);
+
+fprintf('Graphing...\n')	
+gMHfig = figure; orient tall
+%set(1,'Position',[176 174 672 504])		%<------ Set this for new screens
+time = (1 : 1 : length(data))/samprate;
+plot(time,data)
+
+xlabel([ 'Channel ', num2str(channelnumbers)])			% channels are labelled from 0
+
+formatplottitle = regexprep(['Stimulator Channel:  Filename = "',filename,'"'],'_', '\\_');
+title(formatplottitle)
+
+% ==================================================== Region of Interest ======================================
+fprintf('Pick boundaries for analysis. (No dragging)\n')
+figure(gMHfig);
+pause
+[pickedx,pickedy] = ginput(2);
+
+close(gMHfig)
+
+[arbvar,timestart] = min(abs(pickedx(1) - time));		% ARBitrary VARiable
+[arbvar,timeend] = min(abs(pickedx(2) - time));
+
+clip = data(timestart:timeend,1);
+
+% ============================================ Find stimulation ======================================
+limitup = max(clip);
+limitdown = min(clip);
+
+midclip = (limitup + limitdown)/2;
+cliptops = find(clip > midclip);
+
+interpulse = diff(cliptops);
+
+% pulsedelay  =  0.5 * samprate / maxpulserate;
+pulsedelay  =  0.5 * samprate / maxpulserate;
+
+stmpts  = find(interpulse > pulsedelay);
+spikevector = cliptops(stmpts + 1);
+spikevector = [cliptops(1) ; spikevector];
+spikevector = spikevector + timestart - 1;
+
+numsweeps = length(spikevector);
+% =========================================================== Prestim & Poststim ======================================
+% userprestim  = input(['Input time before stimulus (ms, Default = ',num2str(defaultuserprestim),' ms)   ']);
+% if isempty(userprestim)
+% 	userprestim = defaultuserprestim;
+% %	fprintf('Default value of %g \n',defaultprestim)
+% else
+% 	defaultuserprestim = userprestim;
+% 	save getMHdata defaultuserprestim -APPEND   
+% end
+prestim = round(userprestim * samprate / 1000);
+
+% userpoststim  = input(['Input time after stimulus (ms, Default = ',num2str(defaultuserpoststim),' ms)   ']);
+% if isempty(userpoststim)
+% 	userpoststim = defaultuserpoststim;
+% %	fprintf('Default value of %g \n',defaultpoststim)
+% else
+% 	defaultuserpoststim = userpoststim;
+% 	save getMHdata defaultuserpoststim -APPEND   
+% end
+poststim = round(userpoststim * samprate / 1000);
+
+sweeptime = (- prestim : 1 : poststim - 1)' * 1000 / samprate;
+
+tooearly = find(spikevector < prestim + 1);
+spikevector(tooearly) = [];
+
+toolate = find(spikevector > length(data) - poststim + 1);
+spikevector(toolate) = [];
+
+numsweeps = length(spikevector);
+% =========================================================== Load Current Channel ===============================
+% userCurrentChannel = input('Which channel is the Current signal?   ');
+[data,channelnumbers,samprate,filename] = binloadseparatechannels(pathname,filename,userCurrentChannel);
+
+% =============================================== Gain ==========================================================
+% currentgain = input('What is the gain for the current channel?   ');
+
+% ====================================================== Pick Stimulation ===========================================
+for index = 1: numsweeps
+	startpoint = spikevector(index) - prestim;
+	stoppoint = spikevector(index) + poststim - 1;
+	datapile(:,index) = data(startpoint:stoppoint,1);
+end
+hstimcurve = figure;
+for sweepindex = 1 : numsweeps
+	plot(sweeptime,datapile(:,sweepindex))
+	hold on;
+end
+title('Choose stimulation artifact')
+hold off;
+fprintf('Pick stimulation artifact...\n')
+pause
+
+numclicks = 2;
+[pickedx, pickedy] = ginput(numclicks);
+for index = 1 : numclicks;
+	[arb,pickedtimes(index)] = min(abs(sweeptime-pickedx(index)));
+end
+
+currentpile = datapile(pickedtimes(1):pickedtimes(2),:);
+currentp2pmax = max(currentpile);
+currentp2pmin = min(currentpile);
+currentp2p = currentp2pmax - currentp2pmin;
+
+currentp2p = currentp2p /currentgain * 1000;
+
+currentq = sum(currentpile) / samprate; %Stimulus charge
+
+close(hstimcurve);
+
+% =========================================================== Load EMG Channel ====================================================
+% userEMGChannel = input('Which channel is the EMG signal?   ');
+[data,channelnumbers,samprate,filename] = binloadseparatechannels(pathname,filename,userEMGChannel);
+
+% =============================================== Gain ==========================================================
+% EMGgain = input('What is the gain for the EMG channel?   ');
+data = data / EMGgain * 1000;
+% =========================================================== Set up the data =====================================================
+
+for index = 1 : numsweeps
+	startpoint = spikevector(index) - prestim;
+	stoppoint = spikevector(index) + poststim - 1;
+	datapile(:,index) = data(startpoint:stoppoint,1);
+end
+
+% ============================================================= Pick epochs =======================================================
+hEMGcurve = figure;
+for sweepindex = 1 : numsweeps
+	plot(sweeptime,datapile(:,sweepindex))
+	hold on;
+end
+title('Use Zoom buttons. Press SPACE and choose epochs')
+xlabel(['Channel #',num2str(userEMGChannel),' ,',num2str(numsweeps),' sweeps'])
+ylabel('millivolts')
+hold off;
+fprintf('Pick M and H epochs...\n')
+pause
+
+numclicks = 2 * numepochs;
+[pickedx, pickedy] = ginput(numclicks);
+for index = 1 : numclicks;
+	[arb,pickedtimes(index)] = min(abs(sweeptime-pickedx(index)));
+end
+
+for epochindex = 1 : numclicks/2;
+	pt1 = epochindex * 2 - 1;
+	pt2 = epochindex * 2;
+	epochpile = datapile(pickedtimes(pt1):pickedtimes(pt2),:);
+	epochp2pmax(:,epochindex) = (max(epochpile))';
+	epochp2pmin(:,epochindex) = (min(epochpile))';
+
+end
+epochp2p = epochp2pmax - epochp2pmin;
+close(hEMGcurve);
+
+% ============================== Screen Output ==================
+mmax = max(epochp2p(:,1));
+normepochp2p = epochp2p/mmax *100;
+
+hmax = max(epochp2p(:,2));
+
+hmaxbymmax = hmax/mmax;
+
+disp(['M-max: ',num2str(mmax),'   [mV]'])
+disp(['H-max: ',num2str(hmax),'   [mV]'])
+disp(['H-max/M-max: ',num2str(hmaxbymmax*100),'   [%]'])
+
+% ============================================================= Plot Graphs ============================================
+
+
+MHcurve = figure;
+plot(currentp2p,normepochp2p(:,1),'or')
+hold on
+plot(currentp2p,normepochp2p(:,2),'p','color',[0 .5 0])
+hold off
+formatplottitle = regexprep(['M-H Curve:   Filename = "',filename,'"'],'_', '\\_');
+title(formatplottitle)
+xlabel('Stimulation peak-to-peak [mA]')
+ylabel('Percent of M-Max')
+
+saveas(MHcurve,[defaultpathname,fileroot,'ch',num2str(userEMGChannel),'MHplot.fig'],'fig')
+
+MHintime = figure;
+orient landscape
+subplot(2,1,1)
+plot(time(spikevector),epochp2p(:,1),'o','color',[1 0 0]);
+ylabel('M-wave (mV)')
+xlabel('Time into file (s)')
+%v = axis;axis([time(1) time(end) v(3) v(4)])
+
+subplot(2,1,2)
+plot(time(spikevector),epochp2p(:,2),'p','color',[0 .5 0]);
+ylabel('H-reflex (mV)')
+xlabel('Time into file (s)')
+%v = axis;axis([time(1) time(end) v(3) v(4)])
+
+drawnow;
+% ====================================================== Output ==========================================================
+fprintf('Save MH output file...\n')
+defaultfilename = [fileroot,'ch',num2str(userEMGChannel),'MHout.xls'];
+[fileout, pathout] = uiputfile([defaultpathname,defaultfilename], 'Excel file Save As');
+if fileout ~= 0
+
+	tab = sprintf('\t');
+	nextline = sprintf('\n');
+
+	fid = fopen([pathout,fileout] ,'wb');
+	fwrite(fid,'Time [s]', 'uchar'); fwrite(fid,tab, 'uchar');
+	fwrite(fid,'Current Peak to peak [mA]', 'uchar'); fwrite(fid,tab, 'uchar');
+	fwrite(fid,'Current Charge [mAs]', 'uchar'); fwrite(fid,tab, 'uchar');
+	for index = 1 : size(epochp2p,2)
+		fwrite(fid,['Epoch #',num2str(index),' (mV)'], 'uchar'); fwrite(fid,tab, 'uchar');
+		fwrite(fid,['Epoch #',num2str(index),' (Normalized)'], 'uchar');
+		if index ~= size(epochp2p,2)
+			fwrite(fid,tab, 'uchar');
+		end
+	end
+	fwrite(fid,nextline, 'uchar');
+	
+%---average
+	fprintf(fid,'Average');
+	fwrite(fid,tab, 'uchar');
+	fprintf(fid,'%3.4f',mean(currentp2p));
+	fwrite(fid,tab, 'uchar');
+%	fwrite(fid,num2str(currentp2p(sweepindex)), 'uchar');
+	fprintf(fid,'%3.4f',mean(currentq));
+	fwrite(fid,tab, 'uchar');
+	for index = 1 : size(epochp2p,2)
+		fprintf(fid,'%3.4f',mean(epochp2p(:,index)));
+		fwrite(fid,tab, 'uchar');
+		fprintf(fid,'%3.4f',mean(normepochp2p(:,index)));
+% 		fwrite(fid,num2str(epochp2p(sweepindex,index)), 'uchar'); fwrite(fid,tab, 'uchar');
+% 		fwrite(fid,num2str(normepochp2p(sweepindex,index)), 'uchar');
+		if index ~= size(epochp2p,2)
+			fwrite(fid,tab, 'uchar');
+		end
+	end
+	fwrite(fid,nextline, 'uchar');	
+	
+%-----individual sweps
+	for sweepindex = 1 : numsweeps
+		fprintf(fid,'%3.4f',time(spikevector(sweepindex)));
+		fwrite(fid,tab, 'uchar');
+		fprintf(fid,'%3.4f',currentp2p(sweepindex));
+        fwrite(fid,tab, 'uchar');
+% 		fwrite(fid,num2str(currentp2p(sweepindex)), 'uchar');
+		fprintf(fid,'%3.4f',currentq(sweepindex));
+		fwrite(fid,tab, 'uchar');
+		for index = 1 : size(epochp2p,2)
+			fprintf(fid,'%3.4f',epochp2p(sweepindex,index));
+			fwrite(fid,tab, 'uchar');
+			fprintf(fid,'%3.4f',normepochp2p(sweepindex,index));
+% 			fwrite(fid,num2str(epochp2p(sweepindex,index)), 'uchar'); fwrite(fid,tab, 'uchar');
+% 			fwrite(fid,num2str(normepochp2p(sweepindex,index)), 'uchar');
+			if index ~= size(epochp2p,2)
+				fwrite(fid,tab, 'uchar');
+			end
+		end
+		fwrite(fid,nextline, 'uchar');
+	end
+
+	fclose(fid);
+else
+	fprintf('Cancelling Excel output file...\n')
+end	
+
+
+%---------------- plot output
+    fprintf('Save Plot output file...\n')
+    defaultfilename = [fileroot,'MHvaluesplotoutput.xls'];
+    [fileout, pathout] = uiputfile([defaultpathname,defaultfilename], 'Excel file Save As');
+	if fileout ~= 0
+		XLoutput = [sweeptime,mean(datapile,2),datapile];
+		endXLcolumn = num2xlscolumn(numsweeps+2);
+		XLheader = {'Time (s)','Average'};
+		for index = 1 : size(datapile,2)
+			XLheader{1,index +2} = ['Sweep ' num2str(index)];
+			
+		end
+		xlsrange = ['A1:' endXLcolumn '1'];
+		xlswrite([pathout,fileout],XLheader,xlsrange)
+		xlsrange = ['A2:' endXLcolumn num2str(length(sweeptime)+1)];
+		xlswrite([pathout,fileout],XLoutput,xlsrange)
+	end
+  
+fprintf('Awesome.\n')
